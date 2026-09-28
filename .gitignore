@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+screenshot.py
+generate_snapshot.py
+make_config.py
+check_width.py

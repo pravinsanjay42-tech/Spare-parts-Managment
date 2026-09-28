@@ -1,40 +1,82 @@
-# UncertainSpares (Review 1 Scope)
+# UncertainSpares
 
-A probabilistic demand forecasting MVP designed for intermittent spare-parts demand. 
-This project demonstrates how uncertainty-aware forecasting (Quantile Regression) can out-perform traditional point-forecast baselines in highly volatile environments.
+A probabilistic demand forecasting system for intermittent spare-parts logistics.
+Demonstrates how uncertainty-aware forecasting (Quantile Regression) and lead-time-aware procurement outperform traditional point-forecast baselines.
 
-## Scope for Review 1 (Core Forecasting Engine)
+## Results Summary
 
-This milestone focuses exclusively on generating the synthetic dataset and building the core forecasting models. The dispatch simulator, tests, and planner dashboard are under development and will be included in future reviews.
+| Metric | Baseline (Croston's) | Uncertainty-Aware (LightGBM p90) |
+|--------|---------------------|----------------------------------|
+| MAE (Overall Clean) | 0.669 | 0.418 |
+| Coverage (80% target) | — | 89.9% |
+| Stockout Rate (with lead time) | 6.33% | 0.10% |
+| Service Level | 85.05% | 99.53% |
+| Shock Event Coverage | — | 3.1% (honest limitation) |
 
-1. **Synthetic Data Generator** (`src/data_gen.py`): Generates 3 years of daily store-SKU intermittent demand data. Injects features like weather severity, equipment age, festivals, and explicitly modeled "black swan" shock events and stockout censoring.
-2. **Baseline Model** (`src/baseline.py`): A traditional point-forecast baseline using Croston's Method, specifically designed for intermittent demand.
-3. **Uncertainty-Aware Model** (`src/quantile_model.py`): A LightGBM Quantile Regressor predicting p10, p50, and p90 demand bounds to explicitly quantify right-tail risk.
-4. **Evaluation Engine** (`src/evaluate.py`): Initial backtest logic.
+## Architecture
 
-## Setup & Installation
+1. **Synthetic Data Generator** (`src/data_gen.py`): 3 years × 15 stores × 10 SKUs (~143K rows). Includes lead times (3–24 days), on-hand inventory, shock events, cold-start stores, stockout censoring.
+2. **Baseline Model** (`src/baseline.py`): Croston's Method for intermittent demand.
+3. **Uncertainty-Aware Model** (`src/quantile_model.py`): LightGBM quantile regression (p10/p50/p90). Walk-forward split: trains only on data < 2022-07-01.
+4. **Evaluation Engine** (`src/evaluate.py`): Segment-level MAE, RMSE, pinball loss, coverage, sharpness. Generates calibration plot.
+5. **Dispatch Simulator** (`src/dispatch.py`): Policy A (naive) vs Policy B (uncertainty-aware) under workload constraints.
+6. **Reorder Simulator** (`src/reorder.py`): Lead-time-aware reorder policies. Compares naive vs p90-based procurement.
+7. **Shock Detector** (`src/shock_detector.py`): Rolling z-score anomaly detection with p90 widening.
+8. **Hurdle Model** (`src/hurdle_model.py`): Two-stage zero-inflated model (P(demand>0) + conditional quantiles).
+9. **Test Suite** (`tests/test_edge_cases.py`): 17 pytest cases covering data gen, baseline, quantile model, evaluation, reorder, and edge cases.
+10. **Dashboard** (`app/dashboard.py`): Streamlit app with KPI bar, risk table (lead-time-aware), scenario toggle, calibration tab.
 
-1. Ensure Python 3.10+ is installed.
-2. Clone this repository and navigate into the root directory.
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-## How to Run 
-
-Run the following commands in order from the project root to reproduce the pipeline:
+## Setup
 
 ```bash
-# 1. Generate the dataset (Assumptions documented in DATA_ASSUMPTIONS.md)
+pip install -r requirements.txt
+```
+
+## Run Order (End-to-End)
+
+```bash
+# 1. Generate dataset (with lead times and inventory)
 python src/data_gen.py
 
-# 2. Train the baseline model (Croston's Method)
+# 2. Baseline model
 python src/baseline.py
 
-# 3. Train the uncertainty model (LightGBM Quantiles)
+# 3. Quantile model (walk-forward split)
 python src/quantile_model.py
 
-# 4. Generate the initial Evaluation metrics
+# 4. Evaluation report + calibration plot
 python src/evaluate.py
+
+# 5. Dispatch simulation
+python src/dispatch.py
+
+# 6. Reorder simulation
+python src/reorder.py
+
+# 7. Shock detection + adjustment
+python src/shock_detector.py
+
+# 8. Hurdle model comparison
+python src/hurdle_model.py
+
+# 9. Run tests
+pytest tests/test_edge_cases.py -v
+
+# 10. Launch dashboard
+streamlit run app/dashboard.py
 ```
+
+## Key Output Files
+
+| File | Description |
+|------|-------------|
+| `evaluation_report.md` | Full evaluation with all model comparisons |
+| `dispatch_comparison.md` | Policy A vs B dispatch safety results |
+| `reorder_comparison.md` | Naive vs uncertainty-aware reorder results |
+| `data/calibration_plot.png` | Quantile calibration plot |
+| `data/predictions_test_set.csv` | Test-period predictions for verification |
+| `STAKEHOLDER_VALIDATION.md` | Usability walkthrough template |
+
+## Train/Test Split
+
+All models use a strict walk-forward split: train on data before `2022-07-01`, test on data from `2022-07-01` onward. No leakage.

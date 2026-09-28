@@ -44,15 +44,15 @@ def train_quantile_model(df, target='demand'):
         'lag_1', 'lag_7', 'rolling_mean_7', 'rolling_std_7'
     ]
     
-    # Train test split (Walk-forward: last 6 months for testing/evaluation later, but here we just train on everything up to test period to generate forecasts)
-    # Actually, we'll train on the whole dataset to generate predictions for the dashboard, 
-    # but in Stage 4 we will do a strict walk-forward split.
-    # For now, let's train on data < 2022-06-01, predict on >= 2022-06-01.
-    # To cover all plots including the 2021 shock event, we'll just train on everything.
-    # We will do proper walk-forward in Stage 4 (Evaluation).
+    # Walk-forward split: train ONLY on data before the split date.
+    # This matches evaluate.py's split and prevents data leakage.
+    SPLIT_DATE = '2022-07-01'
+    train_mask = df['date'] < SPLIT_DATE
+    X_train = df.loc[train_mask, features]
+    y_train = df.loc[train_mask, target]
     
-    X = df[features]
-    y = df[target]
+    print(f"Walk-forward split: Training on {len(X_train)} rows (date < {SPLIT_DATE})")
+    print(f"  Test set (for prediction): {len(df) - len(X_train)} rows (date >= {SPLIT_DATE})")
     
     models = {}
     quantiles = [0.1, 0.5, 0.9]
@@ -66,7 +66,7 @@ def train_quantile_model(df, target='demand'):
             learning_rate=0.1, 
             random_state=42
         )
-        model.fit(X, y)
+        model.fit(X_train, y_train)
         models[f'p{int(q*100)}'] = model
         
     return models, features

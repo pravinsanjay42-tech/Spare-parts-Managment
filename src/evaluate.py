@@ -138,6 +138,12 @@ def main():
     
     with open("evaluation_report.md", "w") as f:
         f.write(report)
+    
+    # Save test predictions for reviewability (actuals + baseline + quantile forecasts)
+    pred_cols = ['date', 'store_id', 'sku_id', 'demand', 'baseline_forecast', 
+                 'p10', 'p50', 'p90', 'is_cold_start_store', 'is_shock_event', 'stockout_flag']
+    df_test[pred_cols].to_csv("data/predictions_test_set.csv", index=False)
+    print(f"Test predictions saved to data/predictions_test_set.csv ({len(df_test)} rows)")
         
     print("Evaluation complete. Report saved to evaluation_report.md")
     

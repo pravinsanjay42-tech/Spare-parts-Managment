@@ -29,17 +29,21 @@ def generate_data(
     })
     
     # SKU Attributes
+    base_prices = np.random.uniform(50, 500, size=num_skus)
     sku_df = pd.DataFrame({
         "sku_id": skus,
-        "base_price": np.random.uniform(50, 500, size=num_skus),
+        "base_price": base_prices,
         "base_failure_rate": np.random.uniform(0.01, 0.15, size=num_skus), # Probability of demand on a given day
-        "lambda_multiplier": np.random.uniform(1.0, 3.0, size=num_skus) # Expected quantity when failure occurs
+        "lambda_multiplier": np.random.uniform(1.0, 3.0, size=num_skus), # Expected quantity when failure occurs
+        "base_lead_time": np.where(base_prices < 250, np.random.randint(3, 8, size=num_skus), np.random.randint(10, 22, size=num_skus))
     })
     
     # Cross Join to create the full panel
     panel = pd.MultiIndex.from_product([dates, stores, skus], names=["date", "store_id", "sku_id"]).to_frame(index=False)
     df = panel.merge(store_df, on="store_id").merge(sku_df, on="sku_id")
     df = df.sort_values(["store_id", "sku_id", "date"]).reset_index(drop=True)
+    
+    df["lead_time_days"] = np.clip(df["base_lead_time"] + np.random.randint(-3, 4, size=len(df)), 1, 30)
     
     # Dynamic Features
     # Equipment age increases over time
@@ -95,13 +99,59 @@ def generate_data(
     
     df["demand"] = np.where(df["stockout_flag"] == 1, 0, df["true_demand"])
     
+    # Simulate on_hand_inventory
+    def simulate_inventory(d):
+        m_demand = d.groupby(["store_id", "sku_id"])["demand"].transform("mean").values
+        b_lt = d["base_lead_time"].values
+        reorder_points = b_lt * m_demand * 1.5
+        reorder_quants = b_lt * m_demand * 2
+        
+        demands = d["demand"].values
+        lead_times = d["lead_time_days"].values
+        
+        inventory = np.zeros(len(d))
+        
+        store_sku = d["store_id"] + "_" + d["sku_id"]
+        # Find group boundaries
+        boundaries = np.where(store_sku.values[:-1] != store_sku.values[1:])[0]
+        start_indices = np.concatenate(([0], boundaries + 1))
+        end_indices = np.concatenate((boundaries + 1, [len(d)]))
+        
+        for start, end in zip(start_indices, end_indices):
+            cur_m = m_demand[start]
+            cur_r_pt = reorder_points[start]
+            cur_r_qty = reorder_quants[start]
+            
+            cur_stock = int(cur_m * 20)
+            pending = {}
+            
+            for i in range(start, end):
+                if i in pending:
+                    cur_stock += pending.pop(i)
+                
+                cur_stock -= demands[i]
+                if cur_stock < 0:
+                    cur_stock = 0
+                    
+                inventory[i] = cur_stock
+                
+                if cur_stock < cur_r_pt:
+                    arr_idx = i + lead_times[i]
+                    if arr_idx < end:
+                        pending[arr_idx] = pending.get(arr_idx, 0) + cur_r_qty
+                        
+        d["on_hand_inventory"] = inventory
+        return d
+
+    df = simulate_inventory(df)
+    
     # Clean up cold start stores (drop early data)
     cutoff_date = df["date"].max() - pd.Timedelta(days=28)
     mask = (df["is_cold_start_store"] == 1) & (df["date"] < cutoff_date)
     df = df[~mask].reset_index(drop=True)
     
     # Clean up columns
-    drop_cols = ["base_price", "base_failure_rate", "lambda_multiplier", "true_demand", "shifted_demand"]
+    drop_cols = ["base_price", "base_failure_rate", "lambda_multiplier", "true_demand", "shifted_demand", "base_lead_time"]
     df = df.drop(columns=drop_cols)
     
     return df
@@ -125,6 +175,12 @@ def main():
     print(f"Censored days (stockouts): {df['stockout_flag'].sum()}")
     print("\nOverall Demand Stats:")
     print(df["demand"].describe())
+    
+    print("\nOverall Lead Time Stats (Days):")
+    print(df["lead_time_days"].describe())
+    
+    print("\nOverall Inventory Stats:")
+    print(df["on_hand_inventory"].describe())
     
     print("\nProportion of Zero Demand (Intermittency check):")
     zeros = (df["demand"] == 0).sum()

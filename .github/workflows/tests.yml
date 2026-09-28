@@ -1,0 +1,40 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, review-1, review-2 ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Generate data (if CSV not committed)
+      run: |
+        if [ ! -f data/spare_parts_demand.csv ]; then
+          python src/data_gen.py
+        fi
+
+    - name: Run baseline model
+      run: python src/baseline.py
+
+    - name: Run quantile model
+      run: python src/quantile_model.py
+
+    - name: Run evaluation
+      run: python src/evaluate.py
+
+    - name: Run tests
+      run: pytest tests/test_edge_cases.py -v
