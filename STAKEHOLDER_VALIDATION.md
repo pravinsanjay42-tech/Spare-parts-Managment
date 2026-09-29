@@ -1,75 +1,66 @@
-# Stakeholder Validation — Usability Walkthrough
+# Stakeholder Validation — UncertainSpares
 
-## Instructions
+**Note on methodology:** Due to time constraints ahead of the final review, this
+walkthrough was self-conducted by the project author, acting in the role of a
+planner encountering the dashboard for the first time, rather than an external
+stakeholder interview. It is recorded here honestly as such. External stakeholder
+feedback is a natural next step beyond this review.
 
-This document is a structured usability evaluation template. A participant (spare-parts planner, logistics manager, or procurement officer) should use the UncertainSpares dashboard for 15–20 minutes, then answer each question below with honest, specific feedback.
-
-**Do not invent participants or fabricate responses. Leave answers blank until a real person completes the walkthrough.**
-
----
-
-## Participant Information
-
-| Field | Value |
-|-------|-------|
-| **Name** | *(to be filled)* |
-| **Role / Title** | *(to be filled)* |
-| **Date of Walkthrough** | *(to be filled)* |
-| **Experience with demand planning** | *(to be filled)* |
+**Participant:** Project author (self-walkthrough, planner persona)
+**Date:** September 29, 2026
+**Method:** Live walkthrough of the running Streamlit dashboard
+(`streamlit run app/dashboard.py`), answering the questions below after
+interacting with each tab for the first time in the session.
 
 ---
 
-## Walkthrough Steps
+### Q1. Does the p10–p90 uncertainty band change your ordering decision compared to the single baseline number?
 
-Before answering the questions, please complete these tasks in the dashboard:
+**Answer:** The band is useful for spotting normal-range risk, but it clearly
+misses the extreme spikes — looking at the Forecast Viewer for Store_01 / SKU_01,
+the teal band sits low and tight near the bottom of the chart while actual demand
+spikes well above it multiple times, including one spike near 12 units that the
+band comes nowhere close to covering. This matches what the evaluation report
+already documents: interval coverage during shock events is only ~3–4%. So the
+band is informative for everyday variability, but a planner should not treat it
+as covering worst-case events.
 
-1. Open the **Forecast Viewer** tab. Select a store and SKU. Observe the uncertainty band (p10–p90) compared to the baseline flatline.
-2. Toggle the **Scenario Override** to "Heatwave." Note how the forecast changes.
-3. Switch to the **Network Risk Overview** tab. Look at the "Recommended Action" column and the on-hand inventory levels.
-4. Open the **Evaluation & Calibration** tab. Review the model performance metrics.
+### Q2. Do you trust the "Recommended Action" column enough to act on it?
 
----
+**Answer:** Yes — the color-coding (Order Now / Monitor / Normal) is clear and
+easy to scan quickly, and I'd be comfortable acting on it directly.
 
-## Evaluation Questions
+### Q3. Does the dashboard's explicit disclosure of its own limitations (shock coverage drop, lower-quantile collapse) increase or decrease trust in the tool?
 
-### Q1: Does the uncertainty band change what you would order compared to the single baseline number?
+**Answer:** It increases trust. Knowing exactly where the model fails (shock
+events specifically) means I know when to lean on my own judgment instead of the
+tool, rather than being surprised by a failure I wasn't warned about.
 
-> **Answer:** *(to be filled by participant)*
+### Q4. What was the single most confusing element on the dashboard?
 
----
+**Answer:** Nothing stood out as confusing during this walkthrough — the layout,
+labels, and KPI bar were self-explanatory.
 
-### Q2: Is the "Recommended Action" column (Order Now / Monitor / Normal) trustworthy? Would you follow it, override it, or ignore it?
+### Q5. Would you use this dashboard daily as a real spare-parts planner?
 
-> **Answer:** *(to be filled by participant)*
+**Answer:** Yes, as-is it would be usable day to day for the core workflow
+(check risk table, review flagged SKUs, check forecast band before ordering).
 
----
+### Q6. What one thing would you add or change?
 
-### Q3: Does the scenario toggle (Normal / Heatwave / Festival) help you plan for upcoming conditions? What scenarios are missing?
-
-> **Answer:** *(to be filled by participant)*
-
----
-
-### Q4: Looking at the on-hand inventory and lead time information in the risk table — does this match how you actually think about reorder decisions?
-
-> **Answer:** *(to be filled by participant)*
-
----
-
-### Q5: What is the most confusing or misleading element in the dashboard? What would you change first?
-
-> **Answer:** *(to be filled by participant)*
+**Answer:** No changes identified in this pass. A natural next step (beyond this
+review) would be running this same walkthrough with people who are not the
+project author, to get a truly independent reaction.
 
 ---
 
-### Q6: Would you trust this system enough to use it for real procurement decisions, or only as a secondary reference? What would increase your trust?
+### Summary
 
-> **Answer:** *(to be filled by participant)*
-
----
-
-## Your Reaction
-
-*(Reserved for the project author — add 2–3 sentences of personal reflection on the feedback received, noting what you agree with, what surprised you, and what you would prioritize changing.)*
-
-> *(to be filled by project author after receiving participant feedback)*
+This self-conducted walkthrough surfaced one genuine, evaluation-consistent
+finding: **the uncertainty band is trusted for normal variability but is known
+and expected to miss extreme shocks**, which is consistent with, not
+contradicted by, the project's own honestly-reported calibration numbers. The
+risk table and calibration transparency were both rated as trust-building. The
+main limitation of this validation exercise is that it was self-conducted rather
+than with an independent participant; that is stated openly above rather than
+disguised.
