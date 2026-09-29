@@ -1,10 +1,52 @@
+"""
+Workload-Constrained Dispatch Simulator (Stage 5).
+
+This module simulates regional logistics depot operations under hard daily driver
+delivery capacity constraints (e.g., 80 dispatches/day) during a catastrophic
+black-swan demand shock event (2022-11-05).
+It compares two dispatch policies:
+- Policy A (Naive Point Forecast): Dispatches point forecast + open backlog immediately,
+  violating physical driver capacity limits and causing massive unsafe overtime.
+- Policy B (Uncertainty-Aware): Pre-positions stock up to p90 bounds and strictly
+  enforces the daily dispatch cap (0 unsafe violations), safely working down the backlog.
+
+Inputs:
+    - data/spare_parts_demand.csv: Master demand panel.
+    - data/spare_parts_demand_with_quantiles.csv: LightGBM quantile predictions.
+    - data/spare_parts_demand_with_baseline.csv: Croston baseline predictions.
+
+Outputs:
+    - dispatch_comparison.md: Comparative operational report across base and tight caps.
+
+Pipeline Context:
+    Executes in Stage 5 after evaluate.py to demonstrate that uncertainty-aware
+    forecasting prevents warehouse overtime violations and operational breakdown.
+"""
+
 import pandas as pd
 import numpy as np
 
 def run_dispatch_sim(df_test, daily_cap=30):
     """
-    Simulates a daily dispatch process.
-    daily_cap: maximum safe delivery limit across all drivers (e.g. 30 parts/day)
+    Simulate daily warehouse dispatch queues under hard driver workload constraints.
+
+    Aggregates daily demand and model predictions across all network stores, then
+    steps through each day of the evaluation period to simulate inventory queues,
+    backlog rollover, and driver capacity violation metrics for both Policy A and Policy B.
+
+    Parameters:
+        df_test (pd.DataFrame): Test dataset filtered to the evaluation period, containing
+            'date', 'demand', 'baseline_forecast', 'p50', and 'p90'.
+        daily_cap (int or float): Maximum safe daily dispatch capacity across all drivers
+            (e.g., 80 parts/day for base cap, 60 parts/day for tight cap).
+
+    Returns:
+        tuple: (metrics_A, metrics_B, ts_A, ts_B)
+            - metrics_A (dict): Policy A performance summary ('unsafe_assignments', 'total_met',
+              'total_demand', 'backorders').
+            - metrics_B (dict): Policy B performance summary.
+            - ts_A (dict): Daily time-series traces of Policy A backlog.
+            - ts_B (dict): Daily time-series traces of Policy B backlog.
     """
     daily = df_test.groupby('date').agg({
         'demand': 'sum',
@@ -72,6 +114,14 @@ def run_dispatch_sim(df_test, daily_cap=30):
     return metrics_A, metrics_B, ts_A, ts_B
 
 def main():
+    """
+    Run the workload-constrained dispatch simulation across base and tight caps.
+
+    Merges actual demand, Croston baseline, and LightGBM quantile forecasts, filters
+    to the walk-forward evaluation period containing the 2022-11-05 black swan event,
+    simulates Policy A vs Policy B under base (80 parts/day) and tight (60 parts/day) caps,
+    and writes the comparative analysis to 'dispatch_comparison.md'.
+    """
     print("Loading test data...")
     df = pd.read_csv("data/spare_parts_demand.csv")
     df["date"] = pd.to_datetime(df["date"])

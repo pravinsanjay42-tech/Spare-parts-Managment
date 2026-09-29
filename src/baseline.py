@@ -1,3 +1,23 @@
+"""
+Croston's Method Intermittent Demand Forecaster (Stage 2).
+
+This module implements the industry-standard benchmark for intermittent demand:
+Croston's Method. It separates non-zero demand size and inter-demand arrival
+intervals, updating both via single exponential smoothing to produce a point forecast
+ratio (q_t / a_t).
+
+Inputs:
+    - data/spare_parts_demand.csv: Raw synthetic intermittent demand master panel.
+
+Outputs:
+    - data/spare_parts_demand_with_baseline.csv: Master dataset augmented with 'baseline_forecast'.
+    - data/baseline_comparison.png: Diagnostic comparison plot illustrating point forecast flatlining.
+
+Pipeline Context:
+    Executes in Stage 2 after data_gen.py to provide the baseline point estimate
+    against which all subsequent probabilistic and quantile models are compared.
+"""
+
 import os
 import pandas as pd
 import numpy as np
@@ -5,9 +25,19 @@ import matplotlib.pyplot as plt
 
 def croston_forecast(ts, alpha=0.1):
     """
-    Croston's method for intermittent demand.
-    Updates demand size and inter-demand interval separately using exponential smoothing.
-    Returns the daily point forecast (which is usually a flat fractional number).
+    Compute daily intermittent demand point forecasts using Croston's method.
+
+    Maintains two exponentially smoothed state variables:
+    1. Smoothed non-zero demand size (q)
+    2. Smoothed inter-arrival duration between demands (a)
+    The point forecast for any day is the smoothed ratio q / a.
+
+    Parameters:
+        ts (np.ndarray or list or pd.Series): 1D array of daily demand quantities.
+        alpha (float, default=0.1): Exponential smoothing factor for demand size and intervals.
+
+    Returns:
+        np.ndarray: Array of daily point forecasts of identical length to the input series.
     """
     ts = np.array(ts)
     res = np.zeros(len(ts))
@@ -31,6 +61,14 @@ def croston_forecast(ts, alpha=0.1):
     return res
 
 def main():
+    """
+    Run Croston's baseline model across all store-SKU combinations.
+
+    Loads the raw demand panel, computes Croston's forecasts per time series,
+    exports 'data/spare_parts_demand_with_baseline.csv', and plots diagnostic
+    comparisons showing point-forecast limitations during normal, shock, and
+    cold-start periods ('data/baseline_comparison.png').
+    """
     print("Loading data...")
     df = pd.read_csv("data/spare_parts_demand.csv")
     df["date"] = pd.to_datetime(df["date"])

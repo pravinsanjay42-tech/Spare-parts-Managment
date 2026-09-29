@@ -1,10 +1,50 @@
+"""
+Online Shock & Anomaly Detection Engine (Stage 7).
+
+This module implements an online, leakage-free anomaly detector for intermittent
+demand streams. It computes rolling 14-day z-scores on lagged demand (never observing
+contemporaneous demand) and expands upper quantile bounds (p90) when anomalous
+surges occur, maintaining the expansion across a 7-day momentum window.
+
+Inputs:
+    - data/spare_parts_demand_with_quantiles.csv: Panel dataset with LightGBM quantiles.
+
+Outputs:
+    - data/predictions_shock_adjusted.csv: Dataset augmented with 'is_shock_flagged'
+      and 'p90_adjusted'.
+
+Pipeline Context:
+    Serves as an online mitigation mechanism evaluated alongside the direct LightGBM
+    and Hurdle models in evaluation_report.md.
+"""
+
 import pandas as pd
 import numpy as np
 import os
 
 def detect_and_adjust_shocks(df):
     """
-    Apply shock detection and adjustment.
+    Detect demand anomalies using lagged rolling statistics and widen p90 bounds.
+
+    Computes a 14-day rolling mean and standard deviation on lagged demand (t-1)
+    per store-SKU group to ensure no future information leaks into the detector.
+    Flags an anomaly when:
+        Z_score > 3.0 OR lagged_demand > 5 * (rolling_mean + epsilon)
+    When triggered, persists the shock state across a trailing 7-day momentum window
+    and scales the 90th percentile prediction by 3.0 (p90_adjusted = 3.0 * p90).
+
+    Parameters:
+        df (pd.DataFrame): Panel DataFrame containing 'store_id', 'sku_id', 'date',
+            'demand', and 'p90'.
+
+    Returns:
+        pd.DataFrame: Augmented DataFrame containing:
+            - 'rolling_mean_14' (float): 14-day lagged moving average.
+            - 'rolling_std_14' (float): 14-day lagged moving standard deviation.
+            - 'z_score_current' (float): Standardized anomaly score of previous-day demand.
+            - 'is_anomaly_today' (bool): Binary indicator of single-day trigger.
+            - 'is_shock_flagged' (bool): 7-day rolling momentum indicator.
+            - 'p90_adjusted' (float): Adjusted upper quantile forecast.
     """
     df = df.copy()
     
@@ -49,6 +89,13 @@ def detect_and_adjust_shocks(df):
     return df
 
 def main():
+    """
+    Execute online shock detection across the quantile forecast dataset.
+
+    Loads 'data/spare_parts_demand_with_quantiles.csv', applies rolling z-score
+    anomaly detection, widens p90 on flagged rows, exports the resulting panel
+    to 'data/predictions_shock_adjusted.csv', and prints summary diagnostics.
+    """
     input_path = 'data/spare_parts_demand_with_quantiles.csv'
     output_path = 'data/predictions_shock_adjusted.csv'
     

@@ -1,9 +1,45 @@
+"""
+Two-Stage Hurdle Zero-Inflated Quantile Forecaster (Stage 8).
+
+This module implements a two-stage hurdle model designed to prevent lower-quantile
+collapse (p10 = p50 = 0) in heavily zero-inflated intermittent demand series.
+1. Stage 1: LightGBM binary classifier estimating the occurrence probability P(demand > 0 | X).
+2. Stage 2: LightGBM quantile regressors (p10, p50, p90) trained exclusively on non-zero demand.
+3. Recombination: Multiplies occurrence probability by conditional quantile severity to
+   yield positive median expectations (p50 > 0) and sharper intervals.
+
+Inputs:
+    - data/spare_parts_demand.csv: Raw intermittent demand master panel.
+    - data/spare_parts_demand_with_quantiles.csv: Direct quantile forecasts for comparative evaluation.
+
+Outputs:
+    - data/predictions_hurdle.csv: Out-of-sample predictions with hurdle probabilities and quantiles.
+
+Pipeline Context:
+    Evaluated in evaluation_report.md as an architectural alternative addressing zero-inflation
+    collapse and interval sharpness.
+"""
+
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
 import os
 
 def create_features(df):
+    """
+    Construct lag, rolling, and categorical features for hurdle modeling.
+
+    Groups demand by (store_id, sku_id) and computes lagged values (t-1, t-7) and
+    rolling summary statistics (7-day window) based strictly on historical observations.
+
+    Parameters:
+        df (pd.DataFrame): Master demand panel containing 'store_id', 'sku_id', 'date',
+            'demand', and operational covariates.
+
+    Returns:
+        pd.DataFrame: Feature-engineered DataFrame with 'lag_1', 'lag_7', 'rolling_mean_7',
+            and 'rolling_std_7'.
+    """
     df = df.copy()
     df = df.sort_values(['store_id', 'sku_id', 'date'])
     
@@ -21,10 +57,31 @@ def create_features(df):
     return df
 
 def pinball_loss(y_true, y_pred, tau):
+    """
+    Compute asymmetric pinball (quantile tick) loss.
+
+    Formula:
+        L_tau(y, p) = max(tau * (y - p), (tau - 1) * (y - p))
+
+    Parameters:
+        y_true (np.ndarray or pd.Series): Ground-truth demand targets.
+        y_pred (np.ndarray or pd.Series): Predicted quantile values.
+        tau (float): Target quantile level in (0, 1) (e.g., 0.1, 0.5, 0.9).
+
+    Returns:
+        float: Mean pinball loss across all observations.
+    """
     err = y_true - y_pred
     return np.mean(np.maximum(tau * err, (tau - 1) * err))
 
 def main():
+    """
+    Train and evaluate the two-stage hurdle model against direct quantiles.
+
+    Executes a walk-forward split (train < 2022-07-01, test >= 2022-07-01), fits
+    the binary classifier and conditional quantile regressors, generates recombined
+    predictions, exports 'data/predictions_hurdle.csv', and prints comparative metrics.
+    """
     input_demand = 'data/spare_parts_demand.csv'
     input_quantiles = 'data/spare_parts_demand_with_quantiles.csv'
     output_path = 'data/predictions_hurdle.csv'

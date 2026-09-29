@@ -1,24 +1,63 @@
+"""
+Multi-Policy Lead-Time Reorder Simulator (Stage 6).
+
+This module simulates sequential daily inventory replenishment across a network
+of stores and SKUs subject to stochastic lead times and intermittent demand.
+It benchmarks three distinct procurement policies:
+1. Policy 1 (Naive): Uses Croston's point forecast over the lead time (ROP = baseline * L).
+2. Policy 2 (Croston + Safety Stock): Adds classical Gaussian safety stock (ROP = baseline * L + 1.28 * std * sqrt(L)).
+3. Policy 3 (Uncertainty-Aware): Uses LightGBM p90 tail risk over the lead time (ROP = p90 * L).
+
+Inputs:
+    - data/spare_parts_demand_with_quantiles.csv: Contains quantile bounds (p10, p50, p90),
+      supplier lead_time_days, and initial on_hand_inventory.
+    - data/spare_parts_demand_with_baseline.csv: Contains Croston baseline point forecasts.
+
+Outputs:
+    - reorder_comparison.md: Markdown comparison table and order-quantity fairness report.
+    - reorder_results.csv: Granular daily records of demand, on-hand inventory, and policy.
+
+Pipeline Context:
+    Executes in Stage 6 after quantile forecasting and baseline generation to quantify
+    the inventory management improvements (stockout elimination, order reduction)
+    afforded by uncertainty-aware bounds.
+"""
+
 import pandas as pd
 import numpy as np
 
 def run_reorder_simulation(df_test, policy='naive', std_dict=None):
     """
-    Simulate reorder decisions across the test period.
-    
-    For each store-SKU-day:
-    - Track on_hand inventory and on_order (in-transit) inventory
-    - Decide whether to place a reorder based on the policy
-    - Process arrivals when lead_time_days have elapsed since order placement
-    
-    Policies:
-    - 'naive': Reorder when on_hand + on_order < croston_forecast * lead_time_days
-    - 'safety_stock': Reorder when on_hand + on_order < (croston_forecast * lead_time_days + 1.28 * std * sqrt(lead_time_days))
-    - 'uncertainty': Reorder when on_hand + on_order < p90 * lead_time_days
-    
-    Order Quantity Logic:
-    Consistent across all policies — orders up to the reorder point (order_qty = reorder_point).
-    
-    Returns metrics: stockout_rate, service_level, avg_inventory, num_orders
+    Simulate daily inventory depletion, order triggers, and replenishment arrivals.
+
+    For each store-SKU time series in the test set:
+    - Tracks physical on-hand inventory and pending in-transit orders.
+    - Evaluates the policy-specific Reorder Point (ROP).
+    - If inventory position (on_hand + in_transit) < ROP, triggers replenishment.
+    - Processes inventory arrival after the designated lead_time_days elapse.
+    - Fulfills observed customer demand or records a stockout event.
+
+    Order Sizing Parity:
+    All policies use the exact same replenishment rule structure:
+        order_qty = reorder_point
+    This ensures that differences in stockouts and order frequencies stem purely
+    from the statistical definition of the reorder threshold, not custom batching.
+
+    Parameters:
+        df_test (pd.DataFrame): Out-of-sample test panel containing 'store_id', 'sku_id',
+            'date', 'demand', 'lead_time_days', 'on_hand_inventory', 'baseline_forecast',
+            and 'p90'.
+        policy (str): Replenishment rule to test ('naive', 'safety_stock', or 'uncertainty').
+        std_dict (dict, optional): Mapping of (store_id, sku_id) -> historical demand standard
+            deviation precomputed on the training set to prevent test data leakage.
+
+    Returns:
+        dict: Summary operational performance metrics containing:
+            - 'stockout_rate' (float): Fraction of non-zero demand days where on_hand == 0.
+            - 'service_level' (float): Total fulfilled demand divided by total demanded quantity.
+            - 'avg_inventory' (float): Mean physical on-hand units held across all days.
+            - 'num_orders' (int): Total number of discrete purchase orders placed.
+            - 'daily_data' (list[dict]): Daily row-level simulation traces for CSV export.
     """
     df = df_test.sort_values(['store_id', 'sku_id', 'date']).copy()
     
@@ -129,6 +168,15 @@ def run_reorder_simulation(df_test, policy='naive', std_dict=None):
     }
 
 def main():
+    """
+    Execute the multi-policy reorder comparison study.
+
+    Loads the merged quantiles and baseline dataset, filters to the walk-forward
+    test period (date >= 2022-07-01), computes training-set standard deviations per
+    store-SKU, runs the three replenishment policies, and exports:
+    - 'reorder_results.csv': Granular daily simulation traces.
+    - 'reorder_comparison.md': Markdown summary table and order-quantity fairness analysis.
+    """
     print("Loading data...")
     df_q = pd.read_csv("data/spare_parts_demand_with_quantiles.csv")
     df_b = pd.read_csv("data/spare_parts_demand_with_baseline.csv")

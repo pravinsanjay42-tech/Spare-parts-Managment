@@ -1,3 +1,27 @@
+"""
+LightGBM Quantile Regression Forecaster (Stage 3).
+
+This module fits gradient-boosted quantile regression trees at tau in {0.10, 0.50, 0.90}
+under an explicit walk-forward split (train on date < 2022-07-01).
+It provides:
+1. Feature Engineering: Lagged demands (t-1, t-7) and rolling statistics (7-day window).
+2. Quantile Crossing Fix: Vectorized post-hoc sorting ensuring p10 <= p50 <= p90.
+3. Scenario Generator: Generates counterfactual forecasts under simulated Normal,
+   Heatwave, and Festival conditions.
+
+Inputs:
+    - data/spare_parts_demand.csv: Raw synthetic intermittent demand panel.
+
+Outputs:
+    - data/spare_parts_demand_with_quantiles.csv: Master dataset augmented with p10, p50, p90.
+    - data/quantile_comparison.png: Diagnostic visualization comparing quantile envelopes to actuals.
+
+Pipeline Context:
+    Executes in Stage 3 after baseline.py to produce the core probabilistic
+    forecasts used throughout evaluation, dispatch simulation, reorder modeling,
+    and the Streamlit dashboard.
+"""
+
 import os
 import pandas as pd
 import numpy as np
@@ -5,6 +29,16 @@ import lightgbm as lgb
 import matplotlib.pyplot as plt
 
 def create_features(df):
+    """
+    Construct lag, rolling, and categorical features for quantile models.
+
+    Parameters:
+        df (pd.DataFrame): Panel DataFrame sorted by store_id, sku_id, and date.
+
+    Returns:
+        pd.DataFrame: Augmented DataFrame containing 'lag_1', 'lag_7', 'rolling_mean_7',
+            and 'rolling_std_7'.
+    """
     df = df.copy()
     df = df.sort_values(["store_id", "sku_id", "date"])
     
@@ -21,8 +55,19 @@ def create_features(df):
 
 def fix_quantile_crossing(df):
     """
-    LightGBM trains quantiles independently, which can lead to crossing (e.g., p10 > p50).
-    We fix this by sorting the predictions.
+    Rectify quantile crossing inversions via row-wise monotonic sorting.
+
+    Because LightGBM trains quantile regressors independently, predictions can
+    occasionally invert (p10 > p50 or p50 > p90). This function enforces strict
+    monotonicity across all predicted rows.
+
+    Parameters:
+        df (pd.DataFrame): DataFrame containing 'p10', 'p50', and 'p90' columns.
+
+    Returns:
+        tuple: (df_fixed, num_crossed)
+            - df_fixed (pd.DataFrame): DataFrame with sorted, monotonic quantiles.
+            - num_crossed (int): Number of rows where crossing was detected and fixed.
     """
     crossing_mask = (df['p10'] > df['p50']) | (df['p50'] > df['p90'])
     num_crossed = crossing_mask.sum()
@@ -37,6 +82,21 @@ def fix_quantile_crossing(df):
     return df, num_crossed
 
 def train_quantile_model(df, target='demand'):
+    """
+    Fit LightGBM quantile regression models using a strict walk-forward temporal split.
+
+    Trains three models targeting the asymmetric pinball loss at alpha=0.1, 0.5, and 0.9.
+    Training is strictly isolated to data prior to 2022-07-01 to eliminate data leakage.
+
+    Parameters:
+        df (pd.DataFrame): Feature-engineered panel dataset.
+        target (str, default='demand'): Target column name.
+
+    Returns:
+        tuple: (models, features)
+            - models (dict): Mapping of {'p10': model, 'p50': model, 'p90': model}.
+            - features (list[str]): List of predictor feature column names.
+    """
     # Features to use
     features = [
         'store_size', 'equipment_age_years', 'weather_severity_index', 
@@ -73,7 +133,21 @@ def train_quantile_model(df, target='demand'):
 
 def scenario_generator(base_row, models, features):
     """
-    Given a base forecast row, produce 3 alternative forecasts by toggling features.
+    Generate counterfactual probabilistic forecasts under operational stress scenarios.
+
+    Toggles environmental and holiday covariates on a baseline row to generate
+    three comparative scenarios:
+    1. 'Normal': Standard baseline conditions (average weather, no festival).
+    2. 'Heatwave': Extreme weather severity (weather_severity_index = 1.0).
+    3. 'Festival': Active holiday/festival period (is_festival = 1).
+
+    Parameters:
+        base_row (pd.Series or dict): Baseline feature values for a store-SKU day.
+        models (dict): Trained LightGBM models ('p10', 'p50', 'p90').
+        features (list[str]): List of predictor feature column names.
+
+    Returns:
+        pd.DataFrame: Comparative scenario table with columns ['Scenario', 'p10', 'p50', 'p90'].
     """
     scenarios = []
     
@@ -113,6 +187,14 @@ def scenario_generator(base_row, models, features):
     return pd.DataFrame(results)
 
 def main():
+    """
+    Train quantile regression models, predict across panel, and export artifacts.
+
+    Loads the synthetic panel, builds lag and rolling features, fits the walk-forward
+    LightGBM quantiles, enforces monotonic sorting via fix_quantile_crossing, runs
+    sample scenario stress tests, exports 'data/spare_parts_demand_with_quantiles.csv',
+    and generates 'data/quantile_comparison.png'.
+    """
     print("Loading data...")
     df = pd.read_csv("data/spare_parts_demand.csv")
     df["date"] = pd.to_datetime(df["date"])

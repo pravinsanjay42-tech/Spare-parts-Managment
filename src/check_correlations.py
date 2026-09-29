@@ -1,7 +1,28 @@
+"""
+Feature Correlation & Relationship Sanity Inspector.
+
+This diagnostic utility analyzes empirical relationships between operational/environmental
+covariates (weather severity, festival flags, equipment age) and observed demand in
+'data/spare_parts_demand.csv' to ensure the synthetic generator maintains desired
+domain properties.
+
+Inputs:
+    - data/spare_parts_demand.csv: Raw synthetic intermittent demand master panel.
+
+Outputs:
+    - Diagnostic console tables showing conditional demand means.
+
+Pipeline Context:
+    Standalone analytical script used during data validation and feature engineering audits.
+"""
+
 import pandas as pd
 import numpy as np
 
 def main():
+    """
+    Compute and print conditional mean demands across weather, festival, and equipment age buckets.
+    """
     df = pd.read_csv("data/spare_parts_demand.csv")
     
     print("--- Correlation Check ---")

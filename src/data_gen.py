@@ -1,3 +1,27 @@
+"""
+Synthetic Intermittent Demand & Inventory Panel Generator (Stage 1).
+
+This module synthesizes a realistic 3-year panel dataset representing intermittent
+spare-parts demand across 15 stores and 10 SKUs (~143k observations).
+The data generation process models:
+1. Occurrence: Bernoulli trial driven by store scale, equipment age drift, weather severity,
+   component price elasticity, regional festivals, and black-swan shocks.
+2. Sizing: Poisson consumption conditioned on occurrence and environmental multipliers.
+3. Supplier Lead Times: Stochastic lead_time_days per SKU/order (range: 3 to 24 days).
+4. Stateful Inventory: Tracks on_hand_inventory depleted daily by demand and replenished
+   after supplier lead times.
+5. Operational Edge Cases: Injects cold-start stores (Stores 14 and 15), shock events
+   (2021-02-15, 2021-08-10, 2022-11-05), and stockout censoring.
+
+Outputs:
+    - data/spare_parts_demand.csv: Master synthetic panel dataset.
+    - data/demand_histogram.png: Log-scale frequency distribution showing heavy zero-inflation.
+
+Pipeline Context:
+    Executes in Stage 1 to provide the foundational data upon which all downstream
+    forecasting, evaluation, dispatch, and reorder modules operate.
+"""
+
 import os
 import pandas as pd
 import numpy as np
@@ -9,6 +33,20 @@ def generate_data(
     num_skus=10, 
     seed=42
 ):
+    """
+    Generate synthetic panel dataset for intermittent demand and inventory simulation.
+
+    Parameters:
+        num_years (int, default=3): Number of calendar years to simulate.
+        num_stores (int, default=15): Number of regional stores/warehouses.
+        num_skus (int, default=10): Number of discrete spare-part components.
+        seed (int, default=42): Random seed ensuring strict reproducibility.
+
+    Returns:
+        pd.DataFrame: Cleaned synthetic panel containing daily dates, identifiers,
+            operational covariates, lead_time_days, on_hand_inventory, stockout_flag,
+            and demand quantities.
+    """
     np.random.seed(seed)
     
     # Base Setup
@@ -157,6 +195,13 @@ def generate_data(
     return df
 
 def main():
+    """
+    Execute synthetic data generation and export master CSV and frequency plot.
+
+    Calls generate_data(), exports 'data/spare_parts_demand.csv', prints diagnostic
+    statistical summaries across stores and SKUs, and saves the demand distribution
+    histogram to 'data/demand_histogram.png'.
+    """
     print("Generating synthetic data...")
     df = generate_data()
     

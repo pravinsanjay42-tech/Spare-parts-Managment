@@ -1,3 +1,30 @@
+"""
+UncertainSpares Operations Dashboard (Stage 10).
+
+This Streamlit application provides an interactive decision cockpit for spare-parts
+demand planners and warehouse supervisors. It features:
+1. Global Alerts & KPI Ribbon: Real-time risk counts, network coverage, and backorder savings.
+2. Forecast Viewer: Single store-SKU probabilistic time-series inspection with interactive
+   scenario stress-testing (Normal, Heatwave, Festival).
+3. Network Risk Overview: Multi-SKU triage table evaluating the Stock Coverage Ratio
+   (on_hand / [p90 * lead_time]) to classify SKUs as Order Now, Monitor, or Normal.
+4. Evaluation & Calibration: Model transparency dashboard displaying the empirical calibration
+   curve and segment benchmarks.
+
+Inputs:
+    - data/spare_parts_demand_with_quantiles.csv
+    - data/spare_parts_demand_with_baseline.csv
+    - data/calibration_plot.png
+
+Outputs:
+    - Interactive browser GUI on port 8501
+    - Filtered forecast CSV downloads
+
+Pipeline Context:
+    Front-end visualization and decision-support layer synthesizing outputs from
+    the data generation, forecasting, evaluation, and inventory engines.
+"""
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -72,6 +99,15 @@ div[data-testid="metric-container"] {
 
 @st.cache_data
 def load_data():
+    """
+    Load and merge quantile forecasts and baseline predictions.
+
+    Reads 'data/spare_parts_demand_with_quantiles.csv' and 'data/spare_parts_demand_with_baseline.csv',
+    performs an inner join on ['date', 'store_id', 'sku_id'], and caches the result.
+
+    Returns:
+        pd.DataFrame: Merged panel dataset sorted chronologically.
+    """
     df_quantiles = pd.read_csv("data/spare_parts_demand_with_quantiles.csv", parse_dates=["date"])
     df_baseline = pd.read_csv("data/spare_parts_demand_with_baseline.csv", parse_dates=["date"])
     df_all = pd.merge(df_quantiles, df_baseline[['date', 'store_id', 'sku_id', 'baseline_forecast']], 
@@ -81,6 +117,17 @@ def load_data():
 
 @st.cache_resource
 def train_scenario_models():
+    """
+    Train scenario-override LightGBM quantile regression models on pre-split data.
+
+    Fits models for p10, p50, and p90 strictly on historical data prior to 2022-07-01
+    to prevent out-of-sample data leakage. Caches models in Streamlit resource cache.
+
+    Returns:
+        tuple: (models, features)
+            - models (dict): Mapping of {'p10': model, 'p50': model, 'p90': model}.
+            - features (list[str]): List of predictor feature column names.
+    """
     df = load_data()
     df['store_region'] = df['store_region'].astype('category')
     
@@ -99,6 +146,23 @@ def train_scenario_models():
     return models, features
 
 def generate_risk_table(df_all):
+    """
+    Construct the lead-time-aware network risk overview triage table.
+
+    Filters the master dataset to the most recent observation day across all store-SKU
+    pairs, computes the Stock Coverage Ratio (on_hand / [p90 * lead_time]), and
+    assigns color-coded action recommendations:
+    - '🔴 Order Now': Stock Coverage Ratio < 1.0 (stockout imminent during replenishment).
+    - '🟠 Monitor': 1.0 <= Stock Coverage Ratio < 2.0 (marginal safety buffer).
+    - '🟢 Normal': Stock Coverage Ratio >= 2.0 (adequately stocked).
+
+    Parameters:
+        df_all (pd.DataFrame): Master panel DataFrame with quantiles, lead times, and inventory.
+
+    Returns:
+        pd.DataFrame: Formatted triage table with Store, SKU, quantiles, On-Hand, Lead Time,
+            and Recommended Action.
+    """
     latest = df_all[df_all['date'] == df_all['date'].max()].copy()
     latest['uncertainty_width'] = latest['p90'] - latest['p10']
     latest = latest.sort_values(['store_id', 'sku_id'])

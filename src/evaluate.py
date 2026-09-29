@@ -1,3 +1,27 @@
+"""
+Model Calibration & Segment-Level Evaluation Engine (Stage 4).
+
+This module conducts walk-forward out-of-sample backtesting, benchmarking the
+LightGBM Quantile Regressors against Croston's baseline point estimates.
+It evaluates segment-specific performance across:
+1. Overall Clean (excluding stockout-censored days)
+2. Cold-Start Stores (Store 14 and Store 15)
+3. Shock Event Periods (unprecedented demand surges)
+4. Stockout-Censored Days (distorted ground truth)
+
+Inputs:
+    - data/spare_parts_demand.csv: Raw synthetic intermittent demand panel.
+
+Outputs:
+    - evaluation_report.md: Markdown diagnostic benchmark report.
+    - data/predictions_test_set.csv: Test set predictions for external validation.
+    - data/calibration_plot.png: Empirical calibration curve (nominal vs observed quantile coverage).
+
+Pipeline Context:
+    Executes in Stage 4 after baseline and quantile training to provide the
+    statistical validation and calibration evidence for the system.
+"""
+
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
@@ -5,6 +29,16 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 import matplotlib.pyplot as plt
 
 def croston_forecast(ts, alpha=0.1):
+    """
+    Compute Croston point forecast on a time series for baseline evaluation.
+
+    Parameters:
+        ts (np.ndarray): 1D array of historical demand observations.
+        alpha (float, default=0.1): Exponential smoothing weight.
+
+    Returns:
+        np.ndarray: Array of point forecasts.
+    """
     ts = np.array(ts)
     res = np.zeros(len(ts))
     q, a, time_since_last = 1.0, 1.0, 1
@@ -19,9 +53,35 @@ def croston_forecast(ts, alpha=0.1):
     return res
 
 def pinball_loss(y, p, q):
+    """
+    Compute asymmetric pinball loss for quantile evaluation.
+
+    Parameters:
+        y (np.ndarray or pd.Series): True observed demand.
+        p (np.ndarray or pd.Series): Quantile prediction.
+        q (float): Quantile level (e.g., 0.1, 0.5, 0.9).
+
+    Returns:
+        float: Mean asymmetric pinball loss.
+    """
     return np.mean(np.maximum(q * (y - p), (q - 1) * (y - p)))
 
 def evaluate_segment(df_test, name):
+    """
+    Calculate comprehensive accuracy, calibration, and sharpness metrics for a data slice.
+
+    Computes MAE and RMSE for the Croston baseline, median MAE for LightGBM p50,
+    Pinball losses across p10/p50/p90, 80% interval empirical coverage (p10 to p90),
+    and interval sharpness (p90 - p10).
+
+    Parameters:
+        df_test (pd.DataFrame): Data slice containing 'demand', 'baseline_forecast',
+            'p10', 'p50', and 'p90'.
+        name (str): Human-readable segment label.
+
+    Returns:
+        dict: Performance dictionary containing MAE, RMSE, pinball losses, coverage, and sharpness.
+    """
     if len(df_test) == 0:
         return {}
     y = df_test['demand']
@@ -53,6 +113,13 @@ def evaluate_segment(df_test, name):
     }
 
 def main():
+    """
+    Execute walk-forward model training, out-of-sample prediction, and segment evaluation.
+
+    Fits LightGBM quantiles on data < 2022-07-01, evaluates out-of-sample segments on data
+    >= 2022-07-01, exports 'evaluation_report.md' and 'data/predictions_test_set.csv',
+    and generates 'data/calibration_plot.png'.
+    """
     print("Loading data...")
     df = pd.read_csv("data/spare_parts_demand.csv")
     df["date"] = pd.to_datetime(df["date"])
