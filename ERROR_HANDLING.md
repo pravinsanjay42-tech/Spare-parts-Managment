@@ -12,7 +12,7 @@ This document details how **UncertainSpares** handles operational edge cases, ma
 | **2. Zero-Inflated Demand (Quantile Collapse)** | Lower quantiles collapse ($p10 = p50 = 0$) | `src/hurdle_model.py:main` | Decomposes process into two stages: $P(Y > 0)$ classifier + positive-only quantile regressors, recovering $p50 - p10 > 0$ | `tests/test_edge_cases.py::TestQuantileModel::test_quantile_crossing_fixed` & Hurdle evaluation |
 | **3. Black-Swan Demand Shock** | Severe under-prediction during rare catastrophes | `src/shock_detector.py:detect_and_adjust_shocks` & `app/dashboard.py` scenario overrides | Computes rolling 14-day z-scores on lagged demand; when $Z > 3.0$, applies a 3x multiplier to $p90$ across a 7-day momentum window | `tests/test_edge_cases.py::TestEdgeCases::test_shock_event_widens_interval` |
 | **4. Stockout-Censored Demand** | False penalty for predicting true demand when stock is 0 | `src/evaluate.py:main` & `src/data_gen.py` | Flags days where stock was depleted (`stockout_flag = 1`); explicitly isolates them into a separate segment in evaluation | `tests/test_edge_cases.py::TestEvaluation::test_censored_rows_excluded_from_headline` |
-| **5. Missing / Malformed Lead Time or Inventory** | Simulation crash on missing columns | `src/reorder.py:run_reorder_simulation` | Defensive parameter defaults: automatically falls back to `lead_time_days = 7` and `on_hand_inventory = 50` if missing | `tests/test_edge_cases.py::TestReorderPolicy::test_lead_time_changes_decisions` |
+| **5. Missing / Malformed Lead Time or Inventory** | Simulation crash on missing columns or row-level NaNs | `src/reorder.py:run_reorder_simulation` | Defensive parameter defaults: automatically falls back to `lead_time_days = 7` and `on_hand_inventory = 50` for missing columns or row-level `NaN`/nulls | `tests/test_edge_cases.py::TestReorderPolicy::test_reorder_handles_missing_lead_time_or_inventory` |
 | **6. Quantile Crossing Inversions** | Non-monotonic intervals ($p10 > p50$ or $p50 > p90$) | `src/quantile_model.py:fix_quantile_crossing` | Vectorized row-wise sorting (`np.sort(axis=1)`) guarantees monotonic order $p10 \le p50 \le p90$ across all rows | `tests/test_edge_cases.py::TestQuantileModel::test_quantile_crossing_fix_function` |
 
 ---
@@ -52,15 +52,22 @@ This document details how **UncertainSpares** handles operational edge cases, ma
 ### 2.5 Missing or Malformed Lead Time and Inventory Data
 * **Problem**: In practical deployment, external ERP feeds or CSV updates might omit `lead_time_days` or `on_hand_inventory` due to transmission errors or format mismatches.
 * **Handling Implementation**:
-  - In `src/reorder.py:run_reorder_simulation`, defensive fallback checks verify column existence:
+  - In `src/reorder.py:run_reorder_simulation`, defensive fallback checks verify column existence and coerce row-level `NaN` or non-positive values to sensible operational defaults:
     ```python
     if 'lead_time_days' not in df.columns:
         df['lead_time_days'] = 7  # Standard physical supplier median default
+    else:
+        df['lead_time_days'] = pd.to_numeric(df['lead_time_days'], errors='coerce').fillna(7)
+        df['lead_time_days'] = df['lead_time_days'].apply(lambda x: 7 if x <= 0 else x)
+
     if 'on_hand_inventory' not in df.columns:
         df['on_hand_inventory'] = 50  # Operational buffer fallback
+    else:
+        df['on_hand_inventory'] = pd.to_numeric(df['on_hand_inventory'], errors='coerce').fillna(50)
+        df['on_hand_inventory'] = df['on_hand_inventory'].apply(lambda x: 50 if x < 0 else x)
     ```
-  - This prevents unexpected simulation crashes and logs an explicit warning to standard output.
-* **Test Verification**: `test_lead_time_changes_decisions` asserts graceful handling and simulation correctness.
+  - This prevents unexpected simulation crashes, handles missing columns, handles individual row-level `NaN` values, and ensures valid integer lead times $\ge 1$.
+* **Test Verification**: `test_reorder_handles_missing_lead_time_or_inventory` asserts that simulation completes gracefully and outputs valid metrics under both missing columns and row-level `NaN` inputs.
 
 ### 2.6 Quantile Crossing Inversions
 * **Problem**: Because LightGBM fits independent gradient-boosted trees for $p10$, $p50$, and $p90$, individual tree splits can occasionally predict non-monotonic boundaries ($\hat{p}_{10} > \hat{p}_{50}$ or $\hat{p}_{50} > \hat{p}_{90}$), violating the definition of cumulative distribution functions.

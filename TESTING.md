@@ -6,7 +6,7 @@ This document provides a granular reference for the automated test suite in `tes
 
 ## 1. Test Suite Summary & Granular Mapping
 
-The test suite consists of **22 automated unit and integration tests** implemented with `pytest`. Each test asserts mathematical, structural, or operational invariants across the forecasting and decision pipeline.
+The test suite consists of **23 automated unit and integration tests** implemented with `pytest`. Each test asserts mathematical, structural, or operational invariants across the forecasting and decision pipeline.
 
 ### 1.1 Data Generation Tests (`TestDataGeneration`)
 * **`test_required_columns_exist`**: Asserts that `data/spare_parts_demand.csv` contains all 13 required feature and target columns (`date`, `store_id`, `sku_id`, `demand`, `store_size`, `equipment_age_years`, `weather_severity_index`, `price`, `is_festival`, `is_shock_event`, `stockout_flag`, `lead_time_days`, `on_hand_inventory`).
@@ -35,6 +35,7 @@ The test suite consists of **22 automated unit and integration tests** implement
 ### 1.5 Reorder Policy Tests (`TestReorderPolicy`)
 * **`test_lead_time_changes_decisions`**: Asserts that changing supplier lead times from short (5 days) to long (20 days) directly alters reorder point triggers and order frequency in `src/reorder.py:run_reorder_simulation`.
 * **`test_uncertainty_policy_fewer_stockouts`**: Validates the core inventory thesis by asserting that the tail-risk $p90$ policy achieves an equal or lower stockout rate compared to the naive Croston baseline under identical simulated demand.
+* **`test_reorder_handles_missing_lead_time_or_inventory`**: Explicitly verifies error handling when `lead_time_days` or `on_hand_inventory` columns are omitted entirely or contain row-level `NaN`/null values, confirming `run_reorder_simulation` applies fallback defaults (`lead_time_days = 7`, `on_hand_inventory = 50`) without crashing.
 
 ### 1.6 Edge Cases & Dispatch Simulation Tests (`TestEdgeCases`)
 * **`test_shock_event_widens_interval`**: Asserts that following an injected shock event, the model's uncertainty width ($p90 - p10$) expands due to volatility tracking in rolling statistics, and asserts that unaugmented models miss unprecedented black-swan spikes $>80\%$ of the time.
@@ -76,15 +77,16 @@ tests/test_edge_cases.py::TestQuantileModel::test_quantile_crossing_fix_function
 tests/test_edge_cases.py::TestEvaluation::test_censored_rows_excluded_from_headline PASSED [ 59%]
 tests/test_edge_cases.py::TestEvaluation::test_stockout_segment_reported_separately PASSED [ 63%]
 tests/test_edge_cases.py::TestEvaluation::test_split_date_respected PASSED [ 68%]
-tests/test_edge_cases.py::TestEvaluation::test_predictions_file_has_required_columns PASSED [ 72%]
-tests/test_edge_cases.py::TestReorderPolicy::test_lead_time_changes_decisions PASSED [ 77%]
-tests/test_edge_cases.py::TestReorderPolicy::test_uncertainty_policy_fewer_stockouts PASSED [ 81%]
-tests/test_edge_cases.py::TestEdgeCases::test_shock_event_widens_interval PASSED [ 86%]
-tests/test_edge_cases.py::TestEdgeCases::test_cold_start_fallback PASSED [ 90%]
-tests/test_edge_cases.py::TestEdgeCases::test_stockout_censored_demand_flagging PASSED [ 95%]
+tests/test_edge_cases.py::TestEvaluation::test_predictions_file_has_required_columns PASSED [ 70%]
+tests/test_edge_cases.py::TestReorderPolicy::test_lead_time_changes_decisions PASSED [ 74%]
+tests/test_edge_cases.py::TestReorderPolicy::test_uncertainty_policy_fewer_stockouts PASSED [ 78%]
+tests/test_edge_cases.py::TestReorderPolicy::test_reorder_handles_missing_lead_time_or_inventory PASSED [ 83%]
+tests/test_edge_cases.py::TestEdgeCases::test_shock_event_widens_interval PASSED [ 87%]
+tests/test_edge_cases.py::TestEdgeCases::test_cold_start_fallback PASSED [ 91%]
+tests/test_edge_cases.py::TestEdgeCases::test_stockout_censored_demand_flagging PASSED [ 96%]
 tests/test_edge_cases.py::TestEdgeCases::test_dispatch_simulator_shock_recovery PASSED [100%]
 
-======================= 22 passed in 3.97s =======================
+======================= 23 passed in 4.05s =======================
 ```
 
 ---

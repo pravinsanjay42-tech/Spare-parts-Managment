@@ -180,6 +180,38 @@ class TestReorderPolicy:
         assert unc['stockout_rate'] <= naive['stockout_rate'], \
             "Uncertainty policy should have <= stockout rate vs naive"
 
+    def test_reorder_handles_missing_lead_time_or_inventory(self):
+        """Confirm reorder simulation handles missing columns and row-level NaNs using defaults."""
+        from src.reorder import run_reorder_simulation
+        dates = pd.date_range('2022-07-01', periods=60)
+
+        # Case 1: Columns missing entirely (defaults to lead_time=7, on_hand=50)
+        rows_no_cols = []
+        for d in dates:
+            rows_no_cols.append({
+                'date': d, 'store_id': 'S1', 'sku_id': 'K1',
+                'demand': 1, 'baseline_forecast': 0.5, 'p90': 2.0
+            })
+        df_no_cols = pd.DataFrame(rows_no_cols)
+        res_no_cols = run_reorder_simulation(df_no_cols, policy='uncertainty')
+        assert res_no_cols['num_orders'] > 0, "Simulation should trigger reorders once default stock of 50 depletes"
+        assert res_no_cols['avg_inventory'] > 0
+        assert not np.isnan(res_no_cols['service_level'])
+
+        # Case 2: Row-level NaNs and nulls in columns
+        rows_nans = []
+        for i, d in enumerate(dates):
+            rows_nans.append({
+                'date': d, 'store_id': 'S1', 'sku_id': 'K1',
+                'demand': 1, 'baseline_forecast': 0.5, 'p90': 2.0,
+                'lead_time_days': np.nan if i % 2 == 0 else 7,
+                'on_hand_inventory': np.nan if i == 0 else 30
+            })
+        df_nans = pd.DataFrame(rows_nans)
+        res_nans = run_reorder_simulation(df_nans, policy='uncertainty')
+        assert res_nans['num_orders'] > 0
+        assert not np.isnan(res_nans['stockout_rate'])
+
 
 # ============================================================
 # 6. Edge Case Tests (original 4)

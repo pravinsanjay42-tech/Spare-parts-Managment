@@ -61,17 +61,26 @@ def run_reorder_simulation(df_test, policy='naive', std_dict=None):
     """
     df = df_test.sort_values(['store_id', 'sku_id', 'date']).copy()
     
+    # Defensive handling: missing columns or row-level nulls/malformed values
     if 'lead_time_days' not in df.columns:
         df['lead_time_days'] = 7
+    else:
+        df['lead_time_days'] = pd.to_numeric(df['lead_time_days'], errors='coerce').fillna(7)
+        df['lead_time_days'] = df['lead_time_days'].apply(lambda x: 7 if x <= 0 else x)
+
     if 'on_hand_inventory' not in df.columns:
         df['on_hand_inventory'] = 50
+    else:
+        df['on_hand_inventory'] = pd.to_numeric(df['on_hand_inventory'], errors='coerce').fillna(50)
+        df['on_hand_inventory'] = df['on_hand_inventory'].apply(lambda x: 50 if x < 0 else x)
 
     results = []
     
     for (store, sku), group in df.groupby(['store_id', 'sku_id']):
         group = group.reset_index(drop=True)
         
-        on_hand = group.loc[0, 'on_hand_inventory']
+        init_stock = group.loc[0, 'on_hand_inventory']
+        on_hand = 50.0 if pd.isna(init_stock) else float(init_stock)
         on_order_dict = {}
         
         stockouts = 0
@@ -87,7 +96,7 @@ def run_reorder_simulation(df_test, policy='naive', std_dict=None):
         for i in range(len(group)):
             row = group.loc[i]
             demand = row['demand']
-            lead_time = int(row['lead_time_days'])
+            lead_time = max(1, int(round(row['lead_time_days'])))
             
             # 1. Process arrivals
             if i in on_order_dict:
