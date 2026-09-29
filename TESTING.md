@@ -6,7 +6,7 @@ This document provides a granular reference for the automated test suite in `tes
 
 ## 1. Test Suite Summary & Granular Mapping
 
-The test suite consists of **23 automated unit and integration tests** implemented with `pytest`. Each test asserts mathematical, structural, or operational invariants across the forecasting and decision pipeline.
+The test suite consists of **24 automated unit and integration tests** implemented with `pytest`. Each test asserts mathematical, structural, or operational invariants across the forecasting and decision pipeline.
 
 ### 1.1 Data Generation Tests (`TestDataGeneration`)
 * **`test_required_columns_exist`**: Asserts that `data/spare_parts_demand.csv` contains all 13 required feature and target columns (`date`, `store_id`, `sku_id`, `demand`, `store_size`, `equipment_age_years`, `weather_severity_index`, `price`, `is_festival`, `is_shock_event`, `stockout_flag`, `lead_time_days`, `on_hand_inventory`).
@@ -36,6 +36,7 @@ The test suite consists of **23 automated unit and integration tests** implement
 * **`test_lead_time_changes_decisions`**: Asserts that changing supplier lead times from short (5 days) to long (20 days) directly alters reorder point triggers and order frequency in `src/reorder.py:run_reorder_simulation`.
 * **`test_uncertainty_policy_fewer_stockouts`**: Validates the core inventory thesis by asserting that the tail-risk $p90$ policy achieves an equal or lower stockout rate compared to the naive Croston baseline under identical simulated demand.
 * **`test_reorder_handles_missing_lead_time_or_inventory`**: Explicitly verifies error handling when `lead_time_days` or `on_hand_inventory` columns are omitted entirely or contain row-level `NaN`/null values, confirming `run_reorder_simulation` applies fallback defaults (`lead_time_days = 7`, `on_hand_inventory = 50`) without crashing.
+* **`test_croston_safety_stock_improves_service_level`**: Validates that adding a Gaussian safety stock buffer (`policy='croston_safety_stock'`) produces different operational decisions and achieves a higher service level than naive unbuffered Croston.
 
 ### 1.6 Edge Cases & Dispatch Simulation Tests (`TestEdgeCases`)
 * **`test_shock_event_widens_interval`**: Asserts that following an injected shock event, the model's uncertainty width ($p90 - p10$) expands due to volatility tracking in rolling statistics, and asserts that unaugmented models miss unprecedented black-swan spikes $>80\%$ of the time.
@@ -60,33 +61,34 @@ pytest tests/test_edge_cases.py -q
 ### Expected Output
 ```text
 ============================= test session starts =============================
-collected 22 items
+collected 24 items
 
 tests/test_edge_cases.py::TestDataGeneration::test_required_columns_exist PASSED [  4%]
-tests/test_edge_cases.py::TestDataGeneration::test_no_negative_demand PASSED [  9%]
-tests/test_edge_cases.py::TestDataGeneration::test_lead_time_range PASSED [ 13%]
-tests/test_edge_cases.py::TestDataGeneration::test_inventory_never_negative PASSED [ 18%]
-tests/test_edge_cases.py::TestDataGeneration::test_row_count_reasonable PASSED [ 22%]
-tests/test_edge_cases.py::TestDataGeneration::test_cold_start_stores_have_limited_history PASSED [ 27%]
-tests/test_edge_cases.py::TestCrostonBaseline::test_baseline_non_negative PASSED [ 31%]
-tests/test_edge_cases.py::TestCrostonBaseline::test_handles_all_zero_series PASSED [ 36%]
-tests/test_edge_cases.py::TestCrostonBaseline::test_responds_to_demand PASSED [ 40%]
-tests/test_edge_cases.py::TestQuantileModel::test_quantile_crossing_fixed PASSED [ 45%]
-tests/test_edge_cases.py::TestQuantileModel::test_predictions_non_negative PASSED [ 50%]
-tests/test_edge_cases.py::TestQuantileModel::test_quantile_crossing_fix_function PASSED [ 54%]
-tests/test_edge_cases.py::TestEvaluation::test_censored_rows_excluded_from_headline PASSED [ 59%]
-tests/test_edge_cases.py::TestEvaluation::test_stockout_segment_reported_separately PASSED [ 63%]
-tests/test_edge_cases.py::TestEvaluation::test_split_date_respected PASSED [ 68%]
-tests/test_edge_cases.py::TestEvaluation::test_predictions_file_has_required_columns PASSED [ 70%]
-tests/test_edge_cases.py::TestReorderPolicy::test_lead_time_changes_decisions PASSED [ 74%]
-tests/test_edge_cases.py::TestReorderPolicy::test_uncertainty_policy_fewer_stockouts PASSED [ 78%]
-tests/test_edge_cases.py::TestReorderPolicy::test_reorder_handles_missing_lead_time_or_inventory PASSED [ 83%]
+tests/test_edge_cases.py::TestDataGeneration::test_no_negative_demand PASSED [  8%]
+tests/test_edge_cases.py::TestDataGeneration::test_lead_time_range PASSED [ 12%]
+tests/test_edge_cases.py::TestDataGeneration::test_inventory_never_negative PASSED [ 16%]
+tests/test_edge_cases.py::TestDataGeneration::test_row_count_reasonable PASSED [ 20%]
+tests/test_edge_cases.py::TestDataGeneration::test_cold_start_stores_have_limited_history PASSED [ 25%]
+tests/test_edge_cases.py::TestCrostonBaseline::test_baseline_non_negative PASSED [ 29%]
+tests/test_edge_cases.py::TestCrostonBaseline::test_handles_all_zero_series PASSED [ 33%]
+tests/test_edge_cases.py::TestCrostonBaseline::test_responds_to_demand PASSED [ 37%]
+tests/test_edge_cases.py::TestQuantileModel::test_quantile_crossing_fixed PASSED [ 41%]
+tests/test_edge_cases.py::TestQuantileModel::test_predictions_non_negative PASSED [ 45%]
+tests/test_edge_cases.py::TestQuantileModel::test_quantile_crossing_fix_function PASSED [ 50%]
+tests/test_edge_cases.py::TestEvaluation::test_censored_rows_excluded_from_headline PASSED [ 54%]
+tests/test_edge_cases.py::TestEvaluation::test_stockout_segment_reported_separately PASSED [ 58%]
+tests/test_edge_cases.py::TestEvaluation::test_split_date_respected PASSED [ 62%]
+tests/test_edge_cases.py::TestEvaluation::test_predictions_file_has_required_columns PASSED [ 66%]
+tests/test_edge_cases.py::TestReorderPolicy::test_lead_time_changes_decisions PASSED [ 70%]
+tests/test_edge_cases.py::TestReorderPolicy::test_uncertainty_policy_fewer_stockouts PASSED [ 75%]
+tests/test_edge_cases.py::TestReorderPolicy::test_reorder_handles_missing_lead_time_or_inventory PASSED [ 79%]
+tests/test_edge_cases.py::TestReorderPolicy::test_croston_safety_stock_improves_service_level PASSED [ 83%]
 tests/test_edge_cases.py::TestEdgeCases::test_shock_event_widens_interval PASSED [ 87%]
 tests/test_edge_cases.py::TestEdgeCases::test_cold_start_fallback PASSED [ 91%]
-tests/test_edge_cases.py::TestEdgeCases::test_stockout_censored_demand_flagging PASSED [ 96%]
+tests/test_edge_cases.py::TestEdgeCases::test_stockout_censored_demand_flagging PASSED [ 95%]
 tests/test_edge_cases.py::TestEdgeCases::test_dispatch_simulator_shock_recovery PASSED [100%]
 
-======================= 23 passed in 4.05s =======================
+======================= 24 passed in 5.55s =======================
 ```
 
 ---

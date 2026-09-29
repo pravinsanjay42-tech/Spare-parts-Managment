@@ -47,7 +47,7 @@ def run_reorder_simulation(df_test, policy='naive', std_dict=None):
         df_test (pd.DataFrame): Out-of-sample test panel containing 'store_id', 'sku_id',
             'date', 'demand', 'lead_time_days', 'on_hand_inventory', 'baseline_forecast',
             and 'p90'.
-        policy (str): Replenishment rule to test ('naive', 'safety_stock', or 'uncertainty').
+        policy (str): Replenishment rule to test ('naive', 'croston_safety_stock' / 'safety_stock', or 'uncertainty').
         std_dict (dict, optional): Mapping of (store_id, sku_id) -> historical demand standard
             deviation precomputed on the training set to prevent test data leakage.
 
@@ -121,7 +121,7 @@ def run_reorder_simulation(df_test, policy='naive', std_dict=None):
             
             if policy == 'naive':
                 reorder_point = row['baseline_forecast'] * lead_time
-            elif policy == 'safety_stock':
+            elif policy in ['croston_safety_stock', 'safety_stock']:
                 reorder_point = row['baseline_forecast'] * lead_time + 1.28 * sku_std * np.sqrt(lead_time)
             elif policy == 'uncertainty':
                 reorder_point = row['p90'] * lead_time
@@ -203,10 +203,10 @@ def main():
     print("Filtering to test period...")
     df_test = df[df['date'] >= '2022-07-01'].copy()
     
-    policies = ['naive', 'safety_stock', 'uncertainty']
+    policies = ['naive', 'croston_safety_stock', 'uncertainty']
     policy_labels = {
         'naive': "Policy 1: Naive (Croston's)",
-        'safety_stock': "Policy 2: Croston + Safety Stock (z=1.28)",
+        'croston_safety_stock': "Policy 2: Croston + Safety Stock (z=1.28)",
         'uncertainty': "Policy 3: Uncertainty-Aware (p90)"
     }
     
@@ -232,10 +232,11 @@ def main():
     r_naive_inv = results['naive']['avg_inventory']
     r_naive_ord = results['naive']['num_orders']
     
-    r_ss_sr = results['safety_stock']['stockout_rate']*100
-    r_ss_sl = results['safety_stock']['service_level']*100
-    r_ss_inv = results['safety_stock']['avg_inventory']
-    r_ss_ord = results['safety_stock']['num_orders']
+    ss_key = 'croston_safety_stock' if 'croston_safety_stock' in results else 'safety_stock'
+    r_ss_sr = results[ss_key]['stockout_rate']*100
+    r_ss_sl = results[ss_key]['service_level']*100
+    r_ss_inv = results[ss_key]['avg_inventory']
+    r_ss_ord = results[ss_key]['num_orders']
     
     r_unc_sr = results['uncertainty']['stockout_rate']*100
     r_unc_sl = results['uncertainty']['service_level']*100
@@ -247,7 +248,7 @@ def main():
 ## Evaluated Policies
 
 1. **Policy 1: Naive Baseline (Croston's)**: Reorder point $ROP = \\hat{{y}}_{{\\text{{croston}}}} \\times L$.
-2. **Policy 2: Croston + Safety Stock**: $ROP = \\hat{{y}}_{{\\text{{croston}}}} \\times L + z \\times \\sigma \\times \\sqrt{{L}}$, where $z = 1.28$ (standard safety stock factor corresponding to ~90% target non-stockout probability under Gaussian assumptions) and $\\sigma$ is the historical standard deviation of daily demand per store-SKU.
+2. **Policy 2: Croston + Safety Stock**: $ROP = \\hat{{y}}_{{\\text{{croston}}}} \\times L + z \\times \\sigma_{{\\text{{demand}}}} \\times \\sqrt{{L}}$, where $z = 1.28$ (standard safety stock factor corresponding to ~90% target non-stockout probability under Gaussian assumptions) and $\\sigma_{{\\text{{demand}}}}$ is the historical standard deviation of daily demand per store-SKU.
 3. **Policy 3: Uncertainty-Aware (p90)**: Reorder point $ROP = p90 \\times L$, where $p90$ is the dynamically estimated 90th percentile demand bound from LightGBM quantile regression.
 
 ## Performance Comparison (Walk-Forward Test Period)
@@ -265,7 +266,10 @@ All three policies use the exact same replenishment rule structure:
 $$\\text{{If }} (\\text{{On-Hand}} + \\text{{In-Transit}}) < ROP \\implies \\text{{Order Quantity }} Q = ROP$$
 No policy is given an artificial quantity multiplier or favored batch rules. The difference in operational behavior stems entirely from the **statistical definition of the reorder point $ROP$**.
 
-### 2. Why Does the Uncertainty-Aware (p90) Policy Place Fewer Orders than Naive?
+### 2. Fair Baseline Comparison: Croston + Safety Stock vs Uncertainty-Aware (p90)
+While adding a traditional Gaussian safety stock buffer ($z=1.28$) provides a fairer and more competitive benchmark than unbuffered Croston—improving service level from 85.05% to 94.28% and cutting reorder churn from 786 to 572 orders—the uncertainty-aware $p90$ policy still decisively outperforms it by delivering a 99.53% service level and near-zero stockouts (0.10% vs 1.69%) with 34% fewer orders (375 vs 572), because non-parametric quantile regression directly captures the asymmetric, zero-inflated tail risk that symmetrical Gaussian safety stock fails to anticipate.
+
+### 3. Why Does the Uncertainty-Aware (p90) Policy Place Fewer Orders than Naive?
 - **The Naive Churn Trap**: The naive Croston forecast predicts an average daily demand of fractional units (e.g., 0.3 parts/day). Over an 8-day lead time, its $ROP$ is only $\\approx 2.4$ units. Because it orders in tiny batch quantities ($Q \\approx 2.4$), any single lumpy demand spike (e.g., 3–5 parts) immediately wipes out the newly arrived stock. This triggers an unending cycle of frequent, panicked reorders (**786 orders placed**) while still suffering a **6.33% stockout rate**.
 - **p90 Batching Efficiency**: The uncertainty-aware model reflects the right-tail risk ($p90 \\approx 2.0$), yielding $ROP \\approx 16$ units. Each replenishment order arrives with sufficient buffer to absorb stochastic bursts without immediately re-triggering procurement. As a result, the p90 policy places only **375 orders** (a 52% reduction in purchasing transactions) while delivering a near-perfect **99.53% service level**.
 - **Croston + Safety Stock Middle Ground**: Adding traditional Gaussian safety stock ($z=1.28$) improves service level from 85.05% to 94.28% and cuts orders from 786 to 572. However, because intermittent demand violates Gaussian normality (having heavy right skew and zero-inflation), traditional safety stock still yields 16x more stockouts than the quantile-derived p90 policy (1.69% vs 0.10%).

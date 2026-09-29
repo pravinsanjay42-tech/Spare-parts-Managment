@@ -212,6 +212,28 @@ class TestReorderPolicy:
         assert res_nans['num_orders'] > 0
         assert not np.isnan(res_nans['stockout_rate'])
 
+    def test_croston_safety_stock_improves_service_level(self):
+        """Confirm croston_safety_stock produces a different, higher service level than naive Croston."""
+        from src.reorder import run_reorder_simulation
+        dates = pd.date_range('2022-07-01', periods=60)
+        np.random.seed(42)
+        rows = []
+        for d in dates:
+            rows.append({
+                'date': d, 'store_id': 'S1', 'sku_id': 'K1',
+                'demand': np.random.poisson(2), 'baseline_forecast': 0.5,
+                'p90': 4.0, 'lead_time_days': 7, 'on_hand_inventory': 15
+            })
+        df = pd.DataFrame(rows)
+        naive = run_reorder_simulation(df, policy='naive')
+        ss = run_reorder_simulation(df, policy='croston_safety_stock')
+        assert ss['service_level'] >= naive['service_level'], (
+            f"Safety stock service level ({ss['service_level']:.2%}) should be >= naive ({naive['service_level']:.2%})"
+        )
+        assert ss['service_level'] != naive['service_level'], (
+            "Safety stock policy should produce a different service level than naive Croston"
+        )
+
 
 # ============================================================
 # 6. Edge Case Tests (original 4)
